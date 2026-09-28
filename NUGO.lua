@@ -198,14 +198,24 @@ end)
 
 local Lib
 local arcSuccess, arcResult = pcall(function()
-    local url = "https://bblcloud.xyz/library/arc-ui.lua"
+    local urls = {
+        "https://raw.githubusercontent.com/Ghruntz/PS2/main/arc_ui.lua",
+        "https://bblcloud.xyz/library/arc-ui.lua"
+    }
     local source
-    if type(httpget) == "function" then
-        local ok, result = pcall(httpget, url)
-        if ok and type(result) == "string" and #result > 0 then source = result end
+    for _, url in ipairs(urls) do
+        if type(httpget) == "function" then
+            local ok, result = pcall(httpget, url)
+            if ok and type(result) == "string" and #result > 0 then source = result end
+        end
+        if not source then
+            local ok, result = pcall(function() return game:HttpGet(url) end)
+            if ok and type(result) == "string" and #result > 0 then source = result end
+        end
+        if source then break end
     end
-    if not source then source = game:HttpGet(url) end
-    assert(type(source) == "string" and #source > 0, "Arc UI download was empty")
+    assert(type(source) == "string" and #source > 0,
+        "Arc UI download was empty from both GitHub and the original host")
     local chunk, compileError = loadstring(source)
     assert(chunk, "Arc UI compile error: " .. tostring(compileError))
     return chunk()
