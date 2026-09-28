@@ -63,6 +63,9 @@ local State = {
     DefenseMode = "Under",
     BossHeightOffset = 3.8,
     SkipBlocking = true,
+    AutoParry = false,
+    AutoBlock = false,
+    DefenseRange = 18,
     SmoothMove = true,
     MoveSpeed = 60,
     WarpAbove = 40,
@@ -3895,6 +3898,16 @@ FarmBossSec:Toggle("Hold When Blocking", true, function(val)
     State.SkipBlocking = val
 end)
 
+FarmBossSec:Toggle("Auto Parry Nearby Attacks", false, function(val)
+    State.AutoParry = val
+end)
+FarmBossSec:Toggle("Auto Block When Attacked", false, function(val)
+    State.AutoBlock = val
+end)
+FarmBossSec:Slider("Defense Range", 18, 1, 5, 30, "studs", function(val)
+    State.DefenseRange = tonumber(val) or 18
+end)
+
 FarmBossSec:Toggle("Smooth Movement", true, function(val)
     State.SmoothMove = val
     if not val then
@@ -4358,7 +4371,7 @@ local ConfigStateKeys = {
     "AutoDungeon", "AutoFarmMobs", "SelectedMob", "MobDefenseMode", "MobHeightOffset", "MobBehindDistance",
     "MobAttackDelay", "AutoFarmBoss",
     "SelectedBoss", "BossOrder", "bossIdx", "activeBoss", "DefenseMode", "BossHeightOffset",
-    "SkipBlocking", "SmoothMove", "MoveSpeed", "WarpAbove", "SwingReach", "AutoLoot",
+    "SkipBlocking", "AutoParry", "AutoBlock", "DefenseRange", "SmoothMove", "MoveSpeed", "WarpAbove", "SwingReach", "AutoLoot",
     "LootWait", "HoldT", "AimLock", "AimGain",
     "AutoQuestTasks", "SelectedQuest", "QuestOrder", "questIdx", "QuestReturnAfter",
     "QuestWait", "QuestWaitTime", "SkillGap", "SkillConfig", "NoClip",
@@ -5087,81 +5100,72 @@ task.spawn(function()
     end
 end)
 
-task.spawn(function()
-    while State.Running do
-      local okStep = pcall(function()
-        if pauseFarmWhenUnfocused() then return end
-        --[[ Removed feature: Universal Auto-Parry.
-        if State.AutoParry and not State.collect and not State.lootPhase and not State.pendingLoot then
-            local char = lp.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-
-            if hum and hrp and (hum.Health or 0) > 0 then
-                local shouldParry = false
-                local hums = Workspace:FindFirstChild("Humanoids")
-                local deb = Workspace:FindFirstChild("Debree")
-                local containers = { hums, deb }
-
-                for _, rootContainer in ipairs(containers) do
-                    if shouldParry then break end
-                    local reg = rootContainer and rootContainer:FindFirstChild("Regions")
-                    if reg then
-                        for _, r in ipairs(reg:GetChildren()) do
-                            if shouldParry then break end
-                            local active = r:FindFirstChild("ActiveNpcs")
-                            if active then
-                                for _, item in ipairs(active:GetChildren()) do
-                                    local m = item:FindFirstChildOfClass("Model") or (item.ClassName == "Model" and item)
-                                    if not m then
-                                        for _, s in ipairs(item:GetChildren()) do
-                                            if s.ClassName == "Model" then m = s break end
-                                        end
+local defenseNextAt, defenseHumanoid, defenseHealth = 0, nil, nil
+local function nearbyAttackPlaying(position)
+    for _, containerName in ipairs({ "Humanoids", "Debree" }) do
+        local container = Workspace:FindFirstChild(containerName)
+        local regions = container and container:FindFirstChild("Regions")
+        if regions then
+            for _, region in ipairs(regions:GetChildren()) do
+                local active = region:FindFirstChild("ActiveNpcs")
+                if active then
+                    for _, item in ipairs(active:GetChildren()) do
+                        local model = item:FindFirstChildOfClass("Model") or (item.ClassName == "Model" and item)
+                        if not model then
+                            for _, child in ipairs(item:GetChildren()) do
+                                if child.ClassName == "Model" then model = child break end
+                            end
+                        end
+                        if model and not isPlayerModel(model) then
+                            local enemy = model:FindFirstChildOfClass("Humanoid")
+                            local root = model:FindFirstChild("HumanoidRootPart")
+                            if enemy and root and enemy.Health > 0
+                                and (root.Position - position).Magnitude <= (State.DefenseRange or 18) then
+                                for _, track in ipairs(getActiveAnimationTracks(enemy)) do
+                                    local name = tostring(track.Name or ""):lower()
+                                    if name:find("attack") or name:find("skill") or name:find("slash")
+                                        or name:find("swing") or name:find("punch") or name:find("hit") then
+                                        return true
                                     end
-                                    if m and not isPlayerModel(m) then
-                                        local eHum = m:FindFirstChildOfClass("Humanoid")
-                                        local eRoot = m:FindFirstChild("HumanoidRootPart") or findBasePart(m)
-                                        if eHum and eRoot and eHum.Health and eHum.Health > 0 and vec3Ok(eRoot.Position) then
-                                            local dist = (eRoot.Position - hrp.Position).Magnitude
-                                            if dist <= 18 then
-                                                for _, track in ipairs(getActiveAnimationTracks(eHum)) do
-                                                    local tName = track.Name:lower()
-                                                    if tName:find("attack") or tName:find("skill") or tName:find("slash") or tName:find("swing") or tName:find("punch") or tName:find("hit") then
-                                                        shouldParry = true
-                                                        break
-                                                    end
-                                                end
-                                            end
-                                        end
-                                    end
-                                    if shouldParry then break end
                                 end
                             end
                         end
                     end
                 end
-
-                if shouldParry then
-                    if keypress then
-                        pcall(function()
-                            if setrobloxinput then setrobloxinput(true) end
-                            keypress(102)
-                            keypress(70)
-                        end)
-                        task.wait(0.22)
-                        if keyrelease then
-                            pcall(function()
-                                keyrelease(102)
-                                keyrelease(70)
-                            end)
-                        end
-                    end
-                end
             end
         end
-        ]]
-      end)
-      if not okStep then task.wait(0.5) end
+    end
+    return false
+end
+
+task.spawn(function()
+    while State.Running do
+        local okStep = pcall(function()
+            if pauseFarmWhenUnfocused() then return end
+            local char = lp.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if hum ~= defenseHumanoid then
+                defenseHumanoid, defenseHealth, defenseNextAt = hum, hum and hum.Health, 0
+            end
+            if not hum or not root or hum.Health <= 0 then return end
+            local damaged = defenseHealth and hum.Health < defenseHealth
+            defenseHealth = hum.Health
+            if not (State.AutoParry or State.AutoBlock) or not keypress or not keyrelease then return end
+            if State.collect or State.lootPhase or State.pendingLoot then return end
+            local now = os.clock()
+            if now < defenseNextAt then return end
+            local attack = nearbyAttackPlaying(root.Position)
+            local parry = attack and State.AutoParry
+            local block = State.AutoBlock and (attack or damaged)
+            if not parry and not block then return end
+            defenseNextAt = now + (parry and 0.65 or 0.8)
+            if setrobloxinput then setrobloxinput(true) end
+            keypress(70) -- F: the game's block/parry input
+            task.wait(parry and 0.16 or 0.45)
+            keyrelease(70)
+        end)
+        if not okStep then pcall(function() if keyrelease then keyrelease(70) end end) end
         task.wait(0.08)
     end
 end)
