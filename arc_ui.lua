@@ -90,28 +90,28 @@ local Layout = {
   IconSize = 16,
 
   RowHeight = 26,
-  RowGap = 6,
+  RowGap = 4,
   CardRadius = 5,
   CardLeft = 20,
   CardInset = 38,
-  CardTopPad = 11,
-  CardBottomPad = 8,
+  CardTopPad = 9,
+  CardBottomPad = 7,
   ColumnGap = 10,
-  ContentPad = 12,
-  ContentTop = 10,
-  ContentBottom = 10,
+  ContentPad = 10,
+  ContentTop = 8,
+  ContentBottom = 8,
   ScrollGutter = 6,
   SectionTitle = 17,
   SectionDesc = 13,
 
-  ToggleRow = 30,
+  ToggleRow = 27,
   ButtonRow = 26,
-  SliderRow = 38,
-  DropdownRow = 44,
+  SliderRow = 35,
+  DropdownRow = 40,
   DropdownInlineRow = 26,
-  TextboxRow = 44,
+  TextboxRow = 40,
   ColorRow = 26,
-  KeybindRow = 30,
+  KeybindRow = 28,
   DividerRow = 18,
 
   SwitchWidth = 38,
@@ -1543,6 +1543,26 @@ do
       if Keys.a.Click then row.Anchor, row.Caret = 0, #Value Keys.a.Click = false end
       if Keys.c.Click and Selected then setclipboard(string.sub(Value, Low + 1, High)) Keys.c.Click = false end
       if Keys.x.Click and Selected then setclipboard(string.sub(Value, Low + 1, High)) Cut() Keys.x.Click = false end
+      if Keys.v.Click then
+        Keys.v.Click = false
+        local reader = getclipboard or readclipboard
+        if type(reader) == "function" then
+          local ok, pasted = pcall(reader)
+          if ok and type(pasted) == "string" then
+            pasted = pasted:gsub("[\r\n]", "")
+            if not allowed or pasted:match("^" .. allowed .. "*$") then
+              Apply(string.sub(Value, 1, Low) .. pasted .. string.sub(Value, High + 1), Low + #pasted)
+            end
+          end
+        else
+          warn("[Arc UI] This Matcha build does not expose clipboard reading for Ctrl+V")
+          pcall(function()
+            if _G.INSUI and _G.INSUI.Notify then
+              _G.INSUI:Notify("Clipboard", "This Matcha build cannot read pasted text", 4, "warning")
+            end
+          end)
+        end
+      end
 
       return
     end
@@ -2462,13 +2482,17 @@ end
   end
 
 
+  local function SliderValueText(value)
+    return (string.format("%.6f", value):gsub("0+$", ""):gsub("%.$", ""))
+  end
+
   function DrawSlider(row, x, y, width, fade)
     local BarY = y + Layout.RowHeight
     local Span = row.Max - row.Min
     local Fraction = (row.Value - row.Min) / Span
     local Focused = State.Focus == row
     local Typed = row.Typing or ""
-    local Text = Focused and Typed or (tostring(row.Value) .. (row.Suffix ~= "" and (" " .. row.Suffix) or ""))
+    local Text = Focused and Typed or (SliderValueText(row.Value) .. (row.Suffix ~= "" and (" " .. row.Suffix) or ""))
     local CharWidth = Layout.SmallSize * Layout.EditWidth
     local BoxWidth = math.max(40, (Focused and #Typed * CharWidth or TextWidth(Text, Layout.SmallSize, SystemFont)) + 16)
     local BoxX = x + width - BoxWidth
@@ -2505,7 +2529,7 @@ end
     DrawCircle(x + width * row.Fill, BarY + 4, row.Knob, Theme.Text, 32, true, 1, 24, fade)
 
     if Input.Click and OnBox then
-      if not Focused then row.Typing = tostring(row.Value) end
+      if not Focused then row.Typing = SliderValueText(row.Value) end
 
       State.Focus = row
       row.Caret = #row.Typing
