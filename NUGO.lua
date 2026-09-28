@@ -198,12 +198,26 @@ end)
 
 local Lib
 local arcSuccess, arcResult = pcall(function()
-    return loadstring(httpget("https://bblcloud.xyz/library/arc-ui.lua"))()
+    local url = "https://bblcloud.xyz/library/arc-ui.lua"
+    local source
+    if type(httpget) == "function" then
+        local ok, result = pcall(httpget, url)
+        if ok and type(result) == "string" and #result > 0 then source = result end
+    end
+    if not source then source = game:HttpGet(url) end
+    assert(type(source) == "string" and #source > 0, "Arc UI download was empty")
+    local chunk, compileError = loadstring(source)
+    assert(chunk, "Arc UI compile error: " .. tostring(compileError))
+    return chunk()
 end)
-Lib = (arcSuccess and arcResult) or _G.INSUI or getfenv().INSUI
+Lib = (arcSuccess and arcResult) or _G.INSUI
+if not Lib then
+    local ok, fallback = pcall(function() return getfenv().INSUI end)
+    if ok then Lib = fallback end
+end
 
 if not Lib then
-    warn("Slayers 2 Hub: failed to load Arc UI (INSUI)")
+    warn("Slayers 2 Hub: failed to load Arc UI (INSUI): " .. tostring(arcResult))
     return
 end
 
