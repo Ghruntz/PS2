@@ -5665,10 +5665,10 @@ do
   local function CollectHotkeys(view, list)
     for _, Section in ipairs(view.Sections) do
       for _, Row in ipairs(Section.Rows) do
-        local Bind = Row.Bind
+        local Bind = Row.Bind or (Row.Kind == "Keybind" and Row)
 
         if Bind then
-          local Bound = Bind.Value ~= "" and Bind.Value ~= "none" and Row.Value == true
+          local Bound = Bind.Value ~= "" and Bind.Value ~= "none"
           local Plain = HotkeyPlain[string.lower(Row.Name)] and Section.Name ~= ""
 
           Row.Overlay = Approach(Row.Overlay or 0, Bound and 1 or 0, Layout.HotkeySpeed)
