@@ -88,6 +88,7 @@ local State = {
     nikoWatchdogAt = 0,
     lootPhase = nil,
     chestTap = {},
+    lootTap = {},
     BossBehindDistance = 2.6,
     AimLock = false,
     AimGain = 0.55,
@@ -129,6 +130,7 @@ local State = {
     QuestPickMode = "Normal NPC Quest",
     QuestClickOffsetX = 0,
     QuestClickOffsetY = 0,
+    questTNextAt = 0,
     SpamZX = false
 }
 _G.Slayers2Hub = State
@@ -2010,7 +2012,11 @@ local function lootNear(pos, range)
             if p and vec3Ok(p.Position) then
                 local dist = (p.Position - pos).Magnitude
                 if dist <= range then
-                    out[#out + 1] = { get = function() return p.Position end, tap = true, source = d, name = d.Name }
+                    local last = State.lootTap[d]
+                    if not last or now - last > 6 then
+                        State.lootTap[d] = now
+                        out[#out + 1] = { get = function() return p.Position end, tap = true, source = d, name = d.Name }
+                    end
                 end
             end
         end
@@ -2257,16 +2263,15 @@ local function collectStep(now)
     if c.phase == "move" then
         if dist > (State.WarpAbove or 40) then
             pcall(function()
-                Movement:warp(hrp, base, "loot", 3)
+                hrp.CFrame = CFrame.new(base.X, base.Y + 3, base.Z)
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
             end)
         elseif dist > 3.5 then
             local spd = dist * 5.0
             if spd > (State.MoveSpeed or 60) then spd = State.MoveSpeed or 60 end
             local k = spd / dist
             pcall(function()
-                if Movement:claim("loot") then
-                    hrp.AssemblyLinearVelocity = Vector3.new(dx * k, dy * k, dz * k)
-                end
+                hrp.AssemblyLinearVelocity = Vector3.new(dx * k, dy * k, dz * k)
             end)
         else
             pcall(function() hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0) end)
@@ -2291,7 +2296,8 @@ local function collectStep(now)
             Webhook.activeUntil = now + 3
             if it.source and not it.side then
                 local source, label = it.source, it.name
-                task.delay(1.5, function()
+                task.spawn(function()
+                    task.wait(1.5)
                     if State.Running and not source.Parent
                         and os.clock() - Webhook.lastExactAt > 2.5 then
                         sendLootNotice(label, "drop")
@@ -2937,12 +2943,8 @@ local function handleQuestDialogue(pickBoss)
             end
             task.wait(0.45)
         else
-            pcall(function()
-                if setrobloxinput then setrobloxinput(true) end
-                keypress(84)
-                task.wait(0.35)
-                keyrelease(84)
-            end)
+            -- The dialogue is already visible; pressing T here toggles it
+            -- instead of revealing the choices.
             task.wait(0.45)
         end
     end
@@ -2950,12 +2952,15 @@ local function handleQuestDialogue(pickBoss)
 end
 
 local function pressProximityT()
+    if os.clock() < (State.questTNextAt or 0) then return false end
+    State.questTNextAt = os.clock() + 2
     pcall(function()
         if setrobloxinput then setrobloxinput(true) end
         keypress(84)
         task.wait(0.35)
         keyrelease(84)
     end)
+    return true
 end
 
 local function closeQuestDialogue(noKeyFallback)
@@ -3051,7 +3056,7 @@ local function autoAcceptQuest(npcName, npcPos)
         if forcedDeliveryWait then
             task.wait(1.5)
         else
-            pressProximityT()
+            if not getDialogueUI() then pressProximityT() end
             task.wait(0.8)
             local actual = getDialogueUI()
             if actual then
