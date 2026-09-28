@@ -199,7 +199,7 @@ end)
 local Lib
 local arcSuccess, arcResult = pcall(function()
     local urls = {
-        "https://raw.githubusercontent.com/Ghruntz/PS2/main/arc_ui.lua",
+        "https://raw.githubusercontent.com/Ghruntz/PS2/a7a931fd8ee1630434b85063a106969a693304ff/arc_ui.lua",
         "https://bblcloud.xyz/library/arc-ui.lua"
     }
     local source
@@ -234,7 +234,7 @@ end
 local win = Lib:CreateWindow({
     title = "Slayers 2",
     subtitle = "Hub",
-    size = Vector2.new(760, 560),
+    size = Vector2.new(680, 500),
     menuKey = "none",
     keybindOverlay = true,
     configName = "slayers2_base",
@@ -1154,12 +1154,12 @@ local function clickAttackInput()
     if not gameHasFocus() then return false end
     local ok = pcall(function()
         if setrobloxinput then setrobloxinput(true) end
-        if mouse1click then
-            mouse1click()
-        elseif mouse1press and mouse1release then
+        if mouse1press and mouse1release then
             mouse1press()
-            task.wait(0.035)
+            task.wait(0.08)
             mouse1release()
+        elseif mouse1click then
+            mouse1click()
         else
             assert(false, "Left-click input is unavailable")
         end
@@ -2062,13 +2062,6 @@ local function validWebhookUrl(url)
         (url:match("^https://discord%.com/api/webhooks/%d+/[%w_%-]+$") or
          url:match("^https://discordapp%.com/api/webhooks/%d+/[%w_%-]+$")) ~= nil
 end
-local function loadWebhookFromGlobal()
-    local url = tostring(_G.NUGO_WEBHOOK or ""):match("^%s*(.-)%s*$")
-    Webhook.url = validWebhookUrl(url) and url or ""
-    Webhook.enabled = Webhook.url ~= ""
-    return Webhook.enabled
-end
-loadWebhookFromGlobal()
 local function sendLootNotice(itemName, source)
     if not Webhook.enabled or not validWebhookUrl(Webhook.url) then return end
     local now = os.clock()
@@ -2907,19 +2900,14 @@ local function handleQuestDialogue(pickBoss)
             if attempts >= 5 then return false end
             local match = pickChoice(choices, pickBoss)
             if match then
-                attempts = attempts + 1
-                if uiClick(match.Button) then
-                    acceptedOnce = true
-                    task.wait(0.6)
-                    local accepted = getActiveQuest()
-                    if accepted and not accepted.Complete then return true end
-                end
-                -- Keep the game's existing quest remote as a fallback when
-                -- the visible button doesn't complete the interaction.
                 if fireAddQuest(match.Text) then
-                    task.wait(0.6)
+                    attempts = attempts + 1
+                    acceptedOnce = true
+                    task.wait(0.45)
                     local accepted = getActiveQuest()
                     if accepted and not accepted.Complete then return true end
+                else
+                    return false
                 end
             else
                 return false
@@ -3052,20 +3040,12 @@ local function autoAcceptQuest(npcName, npcPos)
                 local picked = nil
                 for _, c in ipairs(choices) do
                     if not isCloseChoice(c.Text) and wantBoss == isBossChoice(c.Text) then
-                        picked = c
+                        picked = c.Text
                         break
                     end
                 end
-                if picked and uiClick(picked.Button) then
-                    task.wait(0.6)
-                    local accepted = getActiveQuest()
-                    if accepted and not accepted.Complete then
-                        closeQuestDialogue()
-                        return true
-                    end
-                end
-                if picked and fireAddQuest(picked.Text) then
-                    task.wait(0.6)
+                if picked and fireAddQuest(picked) then
+                    task.wait(1.0)
                     local accepted = getActiveQuest()
                     if accepted and not accepted.Complete then
                         closeQuestDialogue()
@@ -4244,16 +4224,17 @@ local hAutoChest = ChestSec:Toggle("Auto-Teleport to Chests on Spawn", false, fu
     end
 end)
 
-ChestSec:Info("Paste _G.NUGO_WEBHOOK = \"your URL\" above the NUGO loader in Matcha. The URL is not saved in UI profiles.")
-ChestSec:Button("Reload Webhook URL", function()
-    local loaded = loadWebhookFromGlobal()
-    UI:Notify({ Title = "Loot Webhook", Content = loaded and "Enabled" or "No valid URL in _G.NUGO_WEBHOOK",
-        Type = loaded and "success" or "warn", Duration = 3 })
+ChestSec:Info("Enter your Discord webhook URL here. Ctrl+V works when your client supports clipboard reading.")
+local WebhookUrlBox = ChestSec:Textbox("Discord Webhook URL", "", function(value)
+    local url = tostring(value or ""):match("^%s*(.-)%s*$")
+    Webhook.url = url
+    if Webhook.enabled and not validWebhookUrl(url) then Webhook.enabled = false end
 end)
+WebhookUrlBox.NoSave = true
 ChestSec:Toggle("Notify Discord on Loot", Webhook.enabled, function(value)
     Webhook.enabled = value and validWebhookUrl(Webhook.url) or false
     if value and not Webhook.enabled then
-        UI:Notify({ Title = "Loot Webhook", Content = "Set _G.NUGO_WEBHOOK before loading", Type = "warn", Duration = 3 })
+        UI:Notify({ Title = "Loot Webhook", Content = "Enter a valid URL in the field above", Type = "warn", Duration = 3 })
     end
 end)
 
