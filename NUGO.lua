@@ -662,17 +662,15 @@ local function isPlayerModel(m)
 end
 
 local function getActiveAnimationTracks(hum)
-    if not hum then return {} end
-    local animator = hum:FindFirstChildOfClass("Animator")
-    if animator and animator.GetPlayingAnimationTracks then
-        local ok, tracks = pcall(function() return animator:GetPlayingAnimationTracks() end)
-        if ok and tracks then return tracks end
-    end
-    if hum.GetPlayingAnimationTracks then
-        local ok, tracks = pcall(function() return hum:GetPlayingAnimationTracks() end)
-        if ok and tracks then return tracks end
-    end
-    return {}
+    if not hum then return {}, false end
+    local ok, tracks = pcall(function()
+        local animator = hum:FindFirstChildOfClass("Animator")
+        return animator and animator:GetPlayingAnimationTracks()
+    end)
+    if ok and type(tracks) == "table" then return tracks, true end
+    ok, tracks = pcall(function() return hum:GetPlayingAnimationTracks() end)
+    if ok and type(tracks) == "table" then return tracks, true end
+    return {}, false
 end
 
 local function getEntityLocation(name)
@@ -1127,7 +1125,7 @@ end
 State.OnShutdown(releaseAutoSkills)
 
 local function autoSkillStep(now, distance, targetModel)
-    if State.collect or State.lootPhase or State.pendingLoot or not gameHasFocus() then
+    if State.Defending or State.collect or State.lootPhase or State.pendingLoot or not gameHasFocus() then
         releaseAutoSkills()
         return
     end
@@ -1159,7 +1157,7 @@ local function autoSkillStep(now, distance, targetModel)
 end
 
 local function clickAttackInput()
-    if not gameHasFocus() then return false end
+    if State.Defending or not gameHasFocus() then return false end
     local ok = pcall(function()
         if setrobloxinput then setrobloxinput(true) end
         if mouse1press and mouse1release then
@@ -1338,7 +1336,7 @@ local farmLastAct
 
 local Combat = { skills = SkillInput }
 function Combat:attack(char, style, combo)
-    if not RemoteEvent or not State.HybridRemotes then return combo end
+    if State.Defending or not RemoteEvent or not State.HybridRemotes then return combo end
     local cur = 0
     pcall(function()
         cur = tonumber(char:GetAttribute("last_combo")) or 0
@@ -5200,8 +5198,15 @@ task.spawn(function()
 end)
 
 do
-local defenseNextAt, defenseHumanoid, defenseHealth = 0, nil, nil
+local defenseHumanoid, defenseHealth
+local seen, heldAt, releaseAt, parryNextAt = {}, nil, 0, 0
+local function releaseDefense()
+    if heldAt then pcall(function() keyrelease(70) end) end
+    heldAt, releaseAt, State.Defending = nil, 0, false
+end
+State.OnShutdown(releaseDefense)
 local function nearbyAttackPlaying(position)
+    local attacks = {}
     for _, containerName in ipairs({ "Humanoids", "Debree" }) do
         local container = Workspace:FindFirstChild(containerName)
         local regions = container and container:FindFirstChild("Regions")
@@ -5221,11 +5226,22 @@ local function nearbyAttackPlaying(position)
                             local root = model:FindFirstChild("HumanoidRootPart")
                             if enemy and root and enemy.Health > 0
                                 and (root.Position - position).Magnitude <= (State.DefenseRange or 18) then
-                                for _, track in ipairs(getActiveAnimationTracks(enemy)) do
+                                local tracks, supported = getActiveAnimationTracks(enemy)
+                                if not supported and State.AutoParry and not State.ParryReadWarned then
+                                    State.ParryReadWarned = true
+                                    UI:Notify({ Title = "Auto Parry", Content = "Matcha could not read enemy animations; predictive parry is unavailable", Type = "warn", Duration = 6 })
+                                end
+                                for _, track in ipairs(tracks) do
                                     local name = tostring(track.Name or ""):lower()
-                                    if name:find("attack") or name:find("skill") or name:find("slash")
-                                        or name:find("swing") or name:find("punch") or name:find("hit") then
-                                        return true
+                                    local reaction = name:find("hurt") or name:find("stun") or name:find("hitreact")
+                                        or name:find("block") or name:find("idle")
+                                    local attacking = name:find("attack") or name:find("slash") or name:find("swing")
+                                        or name:find("punch") or name:find("kick") or name:match("^m[12]")
+                                    if attacking and not reaction then
+                                        local key = model:GetFullName() .. ":" .. name
+                                        local elapsed = 0
+                                        pcall(function() elapsed = tonumber(track.TimePosition) or 0 end)
+                                        attacks[key] = elapsed
                                     end
                                 end
                             end
@@ -5235,39 +5251,56 @@ local function nearbyAttackPlaying(position)
             end
         end
     end
-    return false
+    return attacks
 end
 
 task.spawn(function()
     while State.Running do
         local okStep = pcall(function()
-            if pauseFarmWhenUnfocused() then return end
             local char = lp.Character
             local hum = char and char:FindFirstChildOfClass("Humanoid")
             local root = char and char:FindFirstChild("HumanoidRootPart")
             if hum ~= defenseHumanoid then
-                defenseHumanoid, defenseHealth, defenseNextAt = hum, hum and hum.Health, 0
+                releaseDefense()
+                defenseHumanoid, defenseHealth, seen = hum, hum and hum.Health, {}
             end
-            if not hum or not root or hum.Health <= 0 then return end
+            if not hum or not root or hum.Health <= 0 or not gameHasFocus()
+                or not (State.AutoParry or State.AutoBlock) or not keypress or not keyrelease
+                or State.collect or State.lootPhase or State.pendingLoot then
+                releaseDefense()
+                seen = {}
+                return
+            end
+            local now = os.clock()
             local damaged = defenseHealth and hum.Health < defenseHealth
             defenseHealth = hum.Health
-            if not (State.AutoParry or State.AutoBlock) or not keypress or not keyrelease then return end
-            if State.collect or State.lootPhase or State.pendingLoot then return end
-            local now = os.clock()
-            if now < defenseNextAt then return end
-            local attack = nearbyAttackPlaying(root.Position)
-            local parry = attack and State.AutoParry
-            local block = State.AutoBlock and (attack or damaged)
-            if not parry and not block then return end
-            defenseNextAt = now + (parry and 0.65 or 0.8)
-            if setrobloxinput then setrobloxinput(true) end
-            keypress(70) -- F: the game's block/parry input
-            task.wait(parry and 0.16 or 0.45)
-            keyrelease(70)
+            local attacks = nearbyAttackPlaying(root.Position)
+            local active, started = false, false
+            for key, elapsed in pairs(attacks) do
+                active = true
+                local previous = seen[key]
+                if previous == nil or elapsed + 0.05 < previous then started = true end
+            end
+            seen = attacks
+            -- Parry only responds to a new attack, never to damage already received.
+            local parry = State.AutoParry and started and now >= parryNextAt
+            if State.AutoBlock and (active or damaged) then
+                releaseAt = math.max(releaseAt, now + (damaged and 1.5 or 0.2))
+            end
+            if not heldAt and (parry or (State.AutoBlock and (active or damaged))) then
+                releaseAutoSkills()
+                if setrobloxinput then setrobloxinput(true) end
+                keypress(70)
+                heldAt, State.Defending = now, true
+                releaseAt = math.max(releaseAt, now + (State.AutoBlock and 1.5 or 0.16))
+                if parry then parryNextAt = now + 0.4 end
+            end
+            if heldAt and (now >= releaseAt or now - heldAt >= 5) then releaseDefense() end
         end)
-        if not okStep then pcall(function() if keyrelease then keyrelease(70) end end) end
-        task.wait(0.08)
+        if not okStep then releaseDefense() end
+        task.wait(0.04)
     end
+    releaseDefense()
 end)
 end
 
@@ -6026,7 +6059,7 @@ end)
 
 task.spawn(function()
     while State.Running do
-        if State.SpamZX and (State.AutoFarmMobs or State.AutoFarmBoss or State.AutoQuestTasks)
+        if not State.Defending and State.SpamZX and (State.AutoFarmMobs or State.AutoFarmBoss or State.AutoQuestTasks)
             and not State.collect and not State.lootPhase and not State.pendingLoot then
             if iskeypressed and iskeypressed(PanicVK) then
                 if panicStop then panicStop() end
