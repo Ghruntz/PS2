@@ -2882,6 +2882,26 @@ collectChoices = function(actual)
 end
 
 local fireAddQuest
+local function acceptQuestChoice(choice)
+    if not choice or not choice.Text or isCloseChoice(choice.Text) then return false end
+    -- Try the game's visible prompt first. Matcha's mouse injection varies by build,
+    -- so keep the original AddQuest remote as a fallback.
+    if choice.Button then
+        pcall(function() choice.Button:Activate() end)
+        task.wait(0.35)
+        local quest = getActiveQuest()
+        if quest and not quest.Complete then return true end
+        uiClick(choice.Button)
+        task.wait(0.45)
+        quest = getActiveQuest()
+        if quest and not quest.Complete then return true end
+    end
+    if not fireAddQuest(choice.Text) then return false end
+    task.wait(0.65)
+    local quest = getActiveQuest()
+    return quest ~= nil and not quest.Complete
+end
+
 local function handleQuestDialogue(pickBoss)
     local attempts = 0
     local acceptedOnce = false
@@ -2900,14 +2920,12 @@ local function handleQuestDialogue(pickBoss)
             if attempts >= 5 then return false end
             local match = pickChoice(choices, pickBoss)
             if match then
-                if fireAddQuest(match.Text) then
+                if acceptQuestChoice(match) then
                     attempts = attempts + 1
                     acceptedOnce = true
-                    task.wait(0.45)
-                    local accepted = getActiveQuest()
-                    if accepted and not accepted.Complete then return true end
+                    return true
                 else
-                    return false
+                    attempts = attempts + 1
                 end
             else
                 return false
@@ -3040,17 +3058,13 @@ local function autoAcceptQuest(npcName, npcPos)
                 local picked = nil
                 for _, c in ipairs(choices) do
                     if not isCloseChoice(c.Text) and wantBoss == isBossChoice(c.Text) then
-                        picked = c.Text
+                        picked = c
                         break
                     end
                 end
-                if picked and fireAddQuest(picked) then
-                    task.wait(1.0)
-                    local accepted = getActiveQuest()
-                    if accepted and not accepted.Complete then
-                        closeQuestDialogue()
-                        return true
-                    end
+                if picked and acceptQuestChoice(picked) then
+                    closeQuestDialogue()
+                    return true
                 end
                 if handleQuestDialogue(wantBoss) then
                     task.wait(1.0)
@@ -4224,13 +4238,28 @@ local hAutoChest = ChestSec:Toggle("Auto-Teleport to Chests on Spawn", false, fu
     end
 end)
 
-ChestSec:Info("Enter your Discord webhook URL here. Ctrl+V works when your client supports clipboard reading.")
+ChestSec:Info("Enter the webhook URL here, or import it from NUGO_webhook.txt in Matcha's workspace.")
 local WebhookUrlBox = ChestSec:Textbox("Discord Webhook URL", "", function(value)
     local url = tostring(value or ""):match("^%s*(.-)%s*$")
     Webhook.url = url
     if Webhook.enabled and not validWebhookUrl(url) then Webhook.enabled = false end
 end)
 WebhookUrlBox.NoSave = true
+ChestSec:Button("Import Webhook URL from File", function()
+    if type(readfile) ~= "function" then
+        UI:Notify({ Title = "Loot Webhook", Content = "This Matcha build does not expose readfile", Type = "warn", Duration = 4 })
+        return
+    end
+    local ok, contents = pcall(readfile, "NUGO_webhook.txt")
+    local url = ok and type(contents) == "string" and contents:match("^%s*(.-)%s*$") or nil
+    if not validWebhookUrl(url) then
+        UI:Notify({ Title = "Loot Webhook", Content = "Save the URL in Matcha's NUGO_webhook.txt, then import again", Type = "warn", Duration = 5 })
+        return
+    end
+    WebhookUrlBox.Value = url
+    WebhookUrlBox.Callback(url)
+    UI:Notify({ Title = "Loot Webhook", Content = "Webhook URL imported; enable loot notifications below", Type = "success", Duration = 4 })
+end)
 ChestSec:Toggle("Notify Discord on Loot", Webhook.enabled, function(value)
     Webhook.enabled = value and validWebhookUrl(Webhook.url) or false
     if value and not Webhook.enabled then
@@ -4811,7 +4840,12 @@ local function fafStep()
                 UI:Notify({ Title = "Full AutoFarm", Content = "Delivery step active", Type = "info", Duration = 2 })
             end
         elseif getDialogueUI() and not activeQ then
-            handleQuestDialogue(State.QuestPickMode == "Boss Quest")
+            local data = QuestRegistry[State.SelectedQuest]
+            if data and data.NpcPos then
+                autoAcceptQuest(data.NpcName, data.NpcPos)
+            else
+                handleQuestDialogue(State.QuestPickMode == "Boss Quest")
+            end
         else
             if activeQ and not activeQ.Complete then
                 State.questWaitKey = nil
