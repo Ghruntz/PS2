@@ -127,6 +127,8 @@ local State = {
     win = nil,
     FullAutoFarm = false,
     QuestPickMode = "Normal NPC Quest",
+    QuestClickOffsetX = 0,
+    QuestClickOffsetY = 0,
     SpamZX = false
 }
 _G.Slayers2Hub = State
@@ -2765,10 +2767,10 @@ end
 
 local GameMouse = lp:GetMouse()
 
-uiClick = function(target)
+uiClick = function(target, offsetX, offsetY)
     if not target then return false end
-    local gx = target.AbsolutePosition.X + target.AbsoluteSize.X * 0.5
-    local gy = target.AbsolutePosition.Y + target.AbsoluteSize.Y * 0.5
+    local gx = target.AbsolutePosition.X + target.AbsoluteSize.X * 0.5 + (offsetX or 0)
+    local gy = target.AbsolutePosition.Y + target.AbsoluteSize.Y * 0.5 + (offsetY or 0)
     local moved = pcall(function()
         if setrobloxinput then setrobloxinput(true) end
         if mousemoveabs then
@@ -2813,7 +2815,7 @@ local function clickNearbyPrompt()
             local tb = f:FindFirstChild("TextButton")
             if tb then
                 wakeMouse(tb.AbsolutePosition.X + tb.AbsoluteSize.X * 0.5, tb.AbsolutePosition.Y + tb.AbsoluteSize.Y * 0.5)
-                uiClick(tb)
+                uiClick(tb, State.QuestClickOffsetX, State.QuestClickOffsetY)
                 return true
             end
         end
@@ -2894,7 +2896,7 @@ function State.AcceptQuestChoice(choice)
         task.wait(0.35)
         local quest = getActiveQuest()
         if quest and not quest.Complete then return true end
-        uiClick(choice.Button)
+        uiClick(choice.Button, State.QuestClickOffsetX, State.QuestClickOffsetY)
         task.wait(0.45)
         quest = getActiveQuest()
         if quest and not quest.Complete then return true end
@@ -2962,7 +2964,7 @@ local function closeQuestDialogue(noKeyFallback)
     local choices = collectChoices(actual)
     for _, choice in ipairs(choices) do
         if isCloseChoice(choice.Text) then
-            uiClick(choice.Button)
+            uiClick(choice.Button, State.QuestClickOffsetX, State.QuestClickOffsetY)
             task.wait(0.45)
             return
         end
@@ -3744,6 +3746,14 @@ FarmMobsSec:Dropdown("Quest Mission Type", {"Normal NPC Quest"}, { "Normal NPC Q
     State.QuestPickMode = type(val) == "table" and val[1] or val
 end)
 
+FarmMobsSec:Info("Quest click aim: adjust X/Y if Matcha clicks beside a dialogue option.")
+FarmMobsSec:Slider("Quest Click X", 0, 1, -100, 100, "px", function(val)
+    State.QuestClickOffsetX = tonumber(val) or 0
+end)
+FarmMobsSec:Slider("Quest Click Y", 0, 1, -100, 100, "px", function(val)
+    State.QuestClickOffsetY = tonumber(val) or 0
+end)
+
 local QuestWaitSlider
 FarmMobsSec:Toggle("Quest Wait", false, function(val)
     State.QuestWait = val
@@ -4377,7 +4387,7 @@ local ConfigStateKeys = {
     "QuestWait", "QuestWaitTime", "SkillGap", "SkillConfig", "NoClip",
     "AutoChest", "ESPMobs", "ESPBosses", "ESPPlants", "ESPChests", "ESPCrystals",
     "ESPSpiderLily", "ESPHorses", "ESPLevers", "ESPMuzan", "ESPFruits", "ESPDistance",
-    "FullAutoFarm", "QuestPickMode", "SpamZX", "CrowFarm", "CrowSlot", "CrowSwordSlot"
+    "FullAutoFarm", "QuestPickMode", "QuestClickOffsetX", "QuestClickOffsetY", "SpamZX", "CrowFarm", "CrowSlot", "CrowSwordSlot"
 }
 local ConfigStateKeySet = {}
 for _, key in ipairs(ConfigStateKeys) do ConfigStateKeySet[key] = true end
