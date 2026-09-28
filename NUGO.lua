@@ -2885,7 +2885,7 @@ collectChoices = function(actual)
 end
 
 local fireAddQuest
-local function acceptQuestChoice(choice)
+function State.AcceptQuestChoice(choice)
     if not choice or not choice.Text or isCloseChoice(choice.Text) then return false end
     -- Try the game's visible prompt first. Matcha's mouse injection varies by build,
     -- so keep the original AddQuest remote as a fallback.
@@ -2923,7 +2923,7 @@ local function handleQuestDialogue(pickBoss)
             if attempts >= 5 then return false end
             local match = pickChoice(choices, pickBoss)
             if match then
-                if acceptQuestChoice(match) then
+                if State.AcceptQuestChoice(match) then
                     attempts = attempts + 1
                     acceptedOnce = true
                     return true
@@ -3065,7 +3065,7 @@ local function autoAcceptQuest(npcName, npcPos)
                         break
                     end
                 end
-                if picked and acceptQuestChoice(picked) then
+                if picked and State.AcceptQuestChoice(picked) then
                     closeQuestDialogue()
                     return true
                 end
@@ -4252,12 +4252,12 @@ local hAutoChest = ChestSec:Toggle("Auto-Teleport to Chests on Spawn", false, fu
 end)
 
 ChestSec:Info("Enter the webhook URL here, or import it from NUGO_webhook.txt in Matcha's workspace.")
-local WebhookUrlBox = ChestSec:Textbox("Discord Webhook URL", "", function(value)
+State.WebhookUrlBox = ChestSec:Textbox("Discord Webhook URL", "", function(value)
     local url = tostring(value or ""):match("^%s*(.-)%s*$")
     Webhook.url = url
     if Webhook.enabled and not validWebhookUrl(url) then Webhook.enabled = false end
 end)
-WebhookUrlBox.NoSave = true
+State.WebhookUrlBox.NoSave = true
 ChestSec:Button("Import Webhook URL from File", function()
     if type(readfile) ~= "function" then
         UI:Notify({ Title = "Loot Webhook", Content = "This Matcha build does not expose readfile", Type = "warn", Duration = 4 })
@@ -4269,8 +4269,8 @@ ChestSec:Button("Import Webhook URL from File", function()
         UI:Notify({ Title = "Loot Webhook", Content = "Save the URL in Matcha's NUGO_webhook.txt, then import again", Type = "warn", Duration = 5 })
         return
     end
-    WebhookUrlBox.Value = url
-    WebhookUrlBox.Callback(url)
+    State.WebhookUrlBox.Value = url
+    State.WebhookUrlBox.Callback(url)
     UI:Notify({ Title = "Loot Webhook", Content = "Webhook URL imported; enable loot notifications below", Type = "success", Duration = 4 })
 end)
 ChestSec:Toggle("Notify Discord on Loot", Webhook.enabled, function(value)
@@ -5100,6 +5100,7 @@ task.spawn(function()
     end
 end)
 
+do
 local defenseNextAt, defenseHumanoid, defenseHealth = 0, nil, nil
 local function nearbyAttackPlaying(position)
     for _, containerName in ipairs({ "Humanoids", "Debree" }) do
@@ -5169,6 +5170,7 @@ task.spawn(function()
         task.wait(0.08)
     end
 end)
+end
 
 local bossPresence = { at = 0, found = false }
 local function bossHasPriority()
