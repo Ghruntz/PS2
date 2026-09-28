@@ -4266,22 +4266,31 @@ local hAutoChest = ChestSec:Toggle("Auto-Teleport to Chests on Spawn", false, fu
     end
 end)
 
-ChestSec:Info("Enter the webhook URL here, or import it from NUGO_webhook.txt in Matcha's workspace.")
+ChestSec:Info("Put the webhook URL on one line in a .txt file in Matcha's workspace, then enter its filename below.")
 State.WebhookUrlBox = ChestSec:Textbox("Discord Webhook URL", "", function(value)
     local url = tostring(value or ""):match("^%s*(.-)%s*$")
     Webhook.url = url
     if Webhook.enabled and not validWebhookUrl(url) then Webhook.enabled = false end
 end)
 State.WebhookUrlBox.NoSave = true
+State.WebhookFilePath = "NUGO_webhook.txt"
+ChestSec:Textbox("Webhook .txt Filename", State.WebhookFilePath, function(value)
+    State.WebhookFilePath = tostring(value or ""):match("^%s*(.-)%s*$")
+end)
 ChestSec:Button("Import Webhook URL from File", function()
     if type(readfile) ~= "function" then
         UI:Notify({ Title = "Loot Webhook", Content = "This Matcha build does not expose readfile", Type = "warn", Duration = 4 })
         return
     end
-    local ok, contents = pcall(readfile, "NUGO_webhook.txt")
+    local path = State.WebhookFilePath or ""
+    if not path:lower():match("%.txt$") then
+        UI:Notify({ Title = "Loot Webhook", Content = "Enter a .txt filename first", Type = "warn", Duration = 4 })
+        return
+    end
+    local ok, contents = pcall(readfile, path)
     local url = ok and type(contents) == "string" and contents:match("^%s*(.-)%s*$") or nil
     if not validWebhookUrl(url) then
-        UI:Notify({ Title = "Loot Webhook", Content = "Save the URL in Matcha's NUGO_webhook.txt, then import again", Type = "warn", Duration = 5 })
+        UI:Notify({ Title = "Loot Webhook", Content = "Could not read a valid Discord URL from " .. path, Type = "warn", Duration = 5 })
         return
     end
     State.WebhookUrlBox.Value = url
