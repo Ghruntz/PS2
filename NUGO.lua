@@ -1152,17 +1152,19 @@ end
 
 local function clickAttackInput()
     if not gameHasFocus() then return false end
-    pcall(function()
+    local ok = pcall(function()
         if setrobloxinput then setrobloxinput(true) end
-        if mouse1press and mouse1release then
+        if mouse1click then
+            mouse1click()
+        elseif mouse1press and mouse1release then
             mouse1press()
             task.wait(0.035)
             mouse1release()
-        elseif mouse1click then
-            mouse1click()
+        else
+            assert(false, "Left-click input is unavailable")
         end
     end)
-    return true
+    return ok
 end
 
 local function releaseAimLock()
@@ -2060,6 +2062,13 @@ local function validWebhookUrl(url)
         (url:match("^https://discord%.com/api/webhooks/%d+/[%w_%-]+$") or
          url:match("^https://discordapp%.com/api/webhooks/%d+/[%w_%-]+$")) ~= nil
 end
+local function loadWebhookFromGlobal()
+    local url = tostring(_G.NUGO_WEBHOOK or ""):match("^%s*(.-)%s*$")
+    Webhook.url = validWebhookUrl(url) and url or ""
+    Webhook.enabled = Webhook.url ~= ""
+    return Webhook.enabled
+end
+loadWebhookFromGlobal()
 local function sendLootNotice(itemName, source)
     if not Webhook.enabled or not validWebhookUrl(Webhook.url) then return end
     local now = os.clock()
@@ -2078,15 +2087,20 @@ local function sendLootNotice(itemName, source)
             embeds = {{ title = "Loot picked up", description = itemName,
                 color = 0x7A86FF }}
         })
-        local requestFn = http_request or request or (syn and syn.request)
-        if not requestFn then
-            warn("[Loot Webhook] No HTTP request function available")
-            return
+        local ok, result
+        if type(httppost) == "function" then
+            ok, result = pcall(httppost, Webhook.url, payload, "application/json")
+        else
+            local requestFn = http_request or request or (syn and syn.request)
+            if not requestFn then
+                warn("[Loot Webhook] No HTTP POST function available")
+                return
+            end
+            ok, result = pcall(requestFn, {
+                Url = Webhook.url, Method = "POST",
+                Headers = { ["Content-Type"] = "application/json" }, Body = payload
+            })
         end
-        local ok, result = pcall(requestFn, {
-            Url = Webhook.url, Method = "POST",
-            Headers = { ["Content-Type"] = "application/json" }, Body = payload
-        })
         if not ok or (result and result.StatusCode and result.StatusCode >= 400) then
             warn("[Loot Webhook] Delivery failed")
         end
@@ -2756,33 +2770,24 @@ end
 local GameMouse = lp:GetMouse()
 
 uiClick = function(target)
+    if not target then return false end
     local gx = target.AbsolutePosition.X + target.AbsoluteSize.X * 0.5
     local gy = target.AbsolutePosition.Y + target.AbsoluteSize.Y * 0.5
-    if not (mousemoverel and mouse1press and mouse1release) then
-        pcall(function()
-            local vu = game:GetService("VirtualUser")
-            if vu then
-                vu:CaptureController()
-                vu:ClickButton1(Vector2.new(gx, gy))
-                vu:ReleaseController()
-            end
-        end)
-        return
-    end
-    pcall(function()
+    local moved = pcall(function()
         if setrobloxinput then setrobloxinput(true) end
-        for _ = 1, 3 do
+        if mousemoveabs then
+            mousemoveabs(math.floor(gx + 0.5), math.floor(gy + 0.5))
+        elseif mousemoverel then
             local dx = gx - GameMouse.X
             local dy = gy - GameMouse.Y
-            if math.abs(dx) <= 10 and math.abs(dy) <= 10 then break end
             mousemoverel(dx, dy)
-            task.wait(0.04)
+        else
+            assert(false, "Mouse movement is unavailable")
         end
-        task.wait(0.04)
-        mouse1press()
-        task.wait(0.07)
-        mouse1release()
     end)
+    if not moved then return false end
+    task.wait(0.08)
+    return clickAttackInput()
 end
 
 local function wakeMouse(gx, gy)
@@ -2902,14 +2907,19 @@ local function handleQuestDialogue(pickBoss)
             if attempts >= 5 then return false end
             local match = pickChoice(choices, pickBoss)
             if match then
-                if fireAddQuest(match.Text) then
-                    attempts = attempts + 1
+                attempts = attempts + 1
+                if uiClick(match.Button) then
                     acceptedOnce = true
-                    task.wait(0.45)
+                    task.wait(0.6)
                     local accepted = getActiveQuest()
                     if accepted and not accepted.Complete then return true end
-                else
-                    return false
+                end
+                -- Keep the game's existing quest remote as a fallback when
+                -- the visible button doesn't complete the interaction.
+                if fireAddQuest(match.Text) then
+                    task.wait(0.6)
+                    local accepted = getActiveQuest()
+                    if accepted and not accepted.Complete then return true end
                 end
             else
                 return false
@@ -3042,12 +3052,20 @@ local function autoAcceptQuest(npcName, npcPos)
                 local picked = nil
                 for _, c in ipairs(choices) do
                     if not isCloseChoice(c.Text) and wantBoss == isBossChoice(c.Text) then
-                        picked = c.Text
+                        picked = c
                         break
                     end
                 end
-                if picked and fireAddQuest(picked) then
-                    task.wait(1.0)
+                if picked and uiClick(picked.Button) then
+                    task.wait(0.6)
+                    local accepted = getActiveQuest()
+                    if accepted and not accepted.Complete then
+                        closeQuestDialogue()
+                        return true
+                    end
+                end
+                if picked and fireAddQuest(picked.Text) then
+                    task.wait(0.6)
                     local accepted = getActiveQuest()
                     if accepted and not accepted.Complete then
                         closeQuestDialogue()
@@ -4226,21 +4244,16 @@ local hAutoChest = ChestSec:Toggle("Auto-Teleport to Chests on Spawn", false, fu
     end
 end)
 
-ChestSec:Info("Webhook reads pickup text shown in your UI, then uses Tool or world-drop names as fallback. Keep the URL private; UI profiles may save it.")
-ChestSec:Textbox("Discord Webhook URL", "", function(value)
-    local url = tostring(value or ""):match("^%s*(.-)%s*$")
-    if url == "" then Webhook.url = ""; Webhook.enabled = false; return end
-    if not validWebhookUrl(url) then
-        Webhook.enabled = false
-        UI:Notify({ Title = "Loot Webhook", Content = "Enter a valid Discord webhook URL", Type = "warn", Duration = 3 })
-        return
-    end
-    Webhook.url = url
+ChestSec:Info("Paste _G.NUGO_WEBHOOK = \"your URL\" above the NUGO loader in Matcha. The URL is not saved in UI profiles.")
+ChestSec:Button("Reload Webhook URL", function()
+    local loaded = loadWebhookFromGlobal()
+    UI:Notify({ Title = "Loot Webhook", Content = loaded and "Enabled" or "No valid URL in _G.NUGO_WEBHOOK",
+        Type = loaded and "success" or "warn", Duration = 3 })
 end)
-ChestSec:Toggle("Notify Discord on Loot", false, function(value)
+ChestSec:Toggle("Notify Discord on Loot", Webhook.enabled, function(value)
     Webhook.enabled = value and validWebhookUrl(Webhook.url) or false
     if value and not Webhook.enabled then
-        UI:Notify({ Title = "Loot Webhook", Content = "Paste a webhook URL first", Type = "warn", Duration = 3 })
+        UI:Notify({ Title = "Loot Webhook", Content = "Set _G.NUGO_WEBHOOK before loading", Type = "warn", Duration = 3 })
     end
 end)
 
@@ -5252,6 +5265,7 @@ task.spawn(function()
                                 pcall(function() dist2 = (tPos - hrp.Position).Magnitude end)
                                 if dist2 <= (State.SwingReach or 20) then
                                     combo = sendCombatAttack(char, style, combo)
+                                    clickAttackInput()
                                 end
                             end
                         end
@@ -5414,6 +5428,7 @@ task.spawn(function()
                                 pcall(function() dist2 = (bPos - hrp.Position).Magnitude end)
                                 if dist2 <= (State.SwingReach or 20) then
                                     combo = sendCombatAttack(char, style, combo)
+                                    clickAttackInput()
                                     State.lastBossAttack = os.clock()
                                 end
                             end
@@ -5740,6 +5755,7 @@ task.spawn(function()
                                         pcall(function() dist2 = (tPos - hrp.Position).Magnitude end)
                                         if dist2 <= (State.SwingReach or 20) then
                                             combo = sendCombatAttack(char, style, combo)
+                                            clickAttackInput()
                                         end
                                     end
                                 end
