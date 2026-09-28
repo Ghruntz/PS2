@@ -207,7 +207,7 @@ end)
 local Lib
 local arcSuccess, arcResult = pcall(function()
     local urls = {
-        "https://raw.githubusercontent.com/Ghruntz/PS2/a7a931fd8ee1630434b85063a106969a693304ff/arc_ui.lua",
+        "https://raw.githubusercontent.com/Ghruntz/PS2/bcc11de086dd438d89b4e80c4a52f05956f2753d/arc_ui.lua",
         "https://bblcloud.xyz/library/arc-ui.lua"
     }
     local source
@@ -3703,6 +3703,7 @@ QuestSec:Info("When Boss Farm is also on, bosses and their loot take priority. M
 local hAutoFarmMobs, hAutoFarmBoss, hAutoDungeon, hCrowFarm
 local hFullAutoFarm = FarmMobsSec:Toggle("Full AutoFarm (Quest Cycle)", false, function(val)
     State.FullAutoFarm = val
+    if val then win:SetOpen(false) end
     if val then
         State.AutoDungeon = false
         pcall(function() hAutoDungeon:Set(false) end)
@@ -3720,6 +3721,7 @@ hFullAutoFarm.NoSave = true
 
 hAutoDungeon = DungeonSec:Toggle("Auto Dungeon", false, function(val)
     State.AutoDungeon = val
+    if val then win:SetOpen(false) end
     if val then
         State.CrowFarm = false
         State.AutoFarmMobs = false
@@ -3795,6 +3797,7 @@ end)
 
 hCrowFarm = FarmMobsSec:Toggle("Crow Farm", false, function(val)
     State.CrowFarm = val
+    if val then win:SetOpen(false) end
     State.CrowPhase = "idle"
     State.CrowTarget = nil
     State.CrowQuestId = nil
@@ -3891,6 +3894,7 @@ end, nil, true)
 
 hAutoFarmBoss = FarmBossSec:Toggle("Auto-Farm Selected Boss", false, function(val)
     State.AutoFarmBoss = val
+    if val then win:SetOpen(false) end
     if val then
         State.AutoDungeon = false
         pcall(function() hAutoDungeon:Set(false) end)
@@ -3995,7 +3999,7 @@ for _, skillDef in ipairs(AutoSkillList) do
     FarmSkillsSec:Dropdown(skillDef.Name .. " Input", {"Press"}, {"Press", "Hold"}, false, function(val)
         cfg.Mode = type(val) == "table" and val[1] or val
     end)
-    FarmSkillsSec:Slider(skillDef.Name .. " Hold", 0.08, 0.02, 0.02, 1, "s", function(val)
+    FarmSkillsSec:Slider(skillDef.Name .. " Hold", 0.08, 0.02, 0.02, 5, "s", function(val)
         cfg.Hold = tonumber(val) or 0.08
     end)
     FarmSkillsSec:Slider(skillDef.Name .. " Range", 15, 1, 1, 120, "studs", function(val)
@@ -4029,6 +4033,7 @@ end)
 
 hAutoFarmMobs = QuestSec:Toggle("Auto-Farm Selected Mob", false, function(val)
     State.AutoFarmMobs = val
+    if val then win:SetOpen(false) end
     if val then
         State.AutoDungeon = false
         pcall(function() hAutoDungeon:Set(false) end)
@@ -4277,6 +4282,7 @@ end)
 
 local hAutoChest = ChestSec:Toggle("Auto-Teleport to Chests on Spawn", false, function(val)
     State.AutoChest = val
+    if val then win:SetOpen(false) end
     if val then
         UI:Notify({ Title = "Chest Auto-Teleport", Content = "Active (Monitoring World Chests)", Type = "success", Duration = 2 })
     else
@@ -4339,6 +4345,19 @@ ChestSec:Button("Import Webhook URL from File", function()
         UI:Notify({ Title = "Loot Webhook", Content = "Matcha could not read: " .. path, Type = "warn", Duration = 5 })
         return
     end
+    if #contents == 0 then
+        task.wait(0.15)
+        local retryOk, retry = pcall(readfile, path)
+        if retryOk and type(retry) == "string" then contents = retry end
+    end
+    if #contents == 0 then
+        UI:Notify({ Title = "Loot Webhook", Content = "Matcha returned 0 bytes from " .. path .. ". Save the file and select it again.", Type = "warn", Duration = 6 })
+        return
+    end
+    -- Windows editors may save ASCII URLs as UTF-16 with NUL bytes.
+    -- Remove encoding markers and NULs before extracting the URL.
+    contents = contents:gsub("%z", ""):gsub("^\239\187\191", "")
+        :gsub("^\255\254", ""):gsub("^\254\255", "")
     local url = contents:match("https://discord%.com/api/webhooks/%d+/[%w_%-]+")
         or contents:match("https://discordapp%.com/api/webhooks/%d+/[%w_%-]+")
     if not validWebhookUrl(url) then
