@@ -3716,6 +3716,7 @@ local hFullAutoFarm = FarmMobsSec:Toggle("Full AutoFarm (Quest Cycle)", false, f
         UI:Notify({ Title = "Full AutoFarm", Content = "Stopped", Type = "warn", Duration = 2 })
     end
 end)
+hFullAutoFarm.NoSave = true
 
 hAutoDungeon = DungeonSec:Toggle("Auto Dungeon", false, function(val)
     State.AutoDungeon = val
@@ -3740,6 +3741,7 @@ hAutoDungeon = DungeonSec:Toggle("Auto Dungeon", false, function(val)
         UI:Notify({ Title = "Auto Dungeon", Content = "Disabled", Type = "warn", Duration = 2 })
     end
 end)
+hAutoDungeon.NoSave = true
 DungeonSec:Info("Farms active dungeon mobs and bosses, then picks a prioritized reward card.")
 
 FarmMobsSec:Dropdown("Select Quest", {State.SelectedQuest}, QuestOptions, false, function(val)
@@ -3767,11 +3769,10 @@ do
     local y = FarmMobsSec:Slider("Quest Click Y", 15, 1, -100, 100, "px", function(val)
         State.QuestClickOffsetY = tonumber(val) or 15
     end)
-    x.NoSave, y.NoSave = true, true
 end
 FarmMobsSec:Toggle("Use Hybrid Remotes", false, function(val)
     State.HybridRemotes = val
-end).NoSave = true
+end)
 
 local QuestWaitSlider
 FarmMobsSec:Toggle("Quest Wait", false, function(val)
@@ -3817,6 +3818,7 @@ hCrowFarm = FarmMobsSec:Toggle("Crow Farm", false, function(val)
         UI:Notify({ Title = "Crow Farm", Content = "Disabled", Type = "warn", Duration = 2 })
     end
 end)
+hCrowFarm.NoSave = true
 
 FarmMobsSec:Toggle("Spam Z & X (sword skills)", false, function(val)
     State.SpamZX = val
@@ -3905,6 +3907,7 @@ hAutoFarmBoss = FarmBossSec:Toggle("Auto-Farm Selected Boss", false, function(va
         UI:Notify({ Title = "Boss Farm Paused", Content = "Loop stopped", Type = "warn", Duration = 2 })
     end
 end)
+hAutoFarmBoss.NoSave = true
 
 FarmBossSec:Dropdown("Attack Mode", {"Under"}, { "On Top", "Under", "Behind" }, false, function(val)
     State.DefenseMode = type(val) == "table" and val[1] or val
@@ -4040,6 +4043,7 @@ hAutoFarmMobs = QuestSec:Toggle("Auto-Farm Selected Mob", false, function(val)
         UI:Notify({ Title = "Mob Farm Paused", Content = "Loop stopped", Type = "warn", Duration = 2 })
     end
 end)
+hAutoFarmMobs.NoSave = true
 
 QuestSec:Dropdown("Mob Defense Mode", {"Under-Mob (Belly, Facing Up 90)"}, { "Behind Mob (Back-Lock 0 Damage)", "Head-Stomp (Directly on Top)", "Sky God-Hover (Directly Above)", "Under-Mob (Belly, Facing Up 90)" }, false, function(val)
     State.MobDefenseMode = type(val) == "table" and val[1] or val
@@ -4279,6 +4283,7 @@ local hAutoChest = ChestSec:Toggle("Auto-Teleport to Chests on Spawn", false, fu
         UI:Notify({ Title = "Chest Auto-Teleport", Content = "Disabled", Type = "warn", Duration = 2 })
     end
 end)
+hAutoChest.NoSave = true
 
 ChestSec:Info("Put the webhook URL on one line in a .txt file in Matcha's workspace, then enter its filename below.")
 State.WebhookUrlBox = ChestSec:Textbox("Discord Webhook URL", "", function(value)
@@ -4286,11 +4291,32 @@ State.WebhookUrlBox = ChestSec:Textbox("Discord Webhook URL", "", function(value
     Webhook.url = url
     if Webhook.enabled and not validWebhookUrl(url) then Webhook.enabled = false end
 end)
-State.WebhookUrlBox.NoSave = true
 State.WebhookFilePath = "NUGO_webhook.txt"
-ChestSec:Textbox("Webhook .txt Filename", State.WebhookFilePath, function(value)
+State.WebhookFileBox = ChestSec:Textbox("Webhook .txt Filename", State.WebhookFilePath, function(value)
     State.WebhookFilePath = tostring(value or ""):match("^%s*(.-)%s*$")
 end)
+ChestSec:Dropdown("Choose Webhook .txt", {}, function()
+    local choices = {}
+    if type(listfiles) == "function" then
+        for _, folder in ipairs({ "", "Slayers2" }) do
+            local ok, files = pcall(listfiles, folder)
+            if ok and type(files) == "table" then
+                for _, file in ipairs(files) do
+                    if tostring(file):lower():match("%.txt$") then
+                        choices[#choices + 1] = tostring(file)
+                    end
+                end
+            end
+        end
+    end
+    return choices
+end, false, function(value)
+    local path = type(value) == "table" and value[1] or value
+    if path then
+        State.WebhookFilePath = path
+        State.WebhookFileBox.Value = path
+    end
+end, nil, true)
 ChestSec:Button("Import Webhook URL from File", function()
     if type(readfile) ~= "function" then
         UI:Notify({ Title = "Loot Webhook", Content = "This Matcha build does not expose readfile", Type = "warn", Duration = 4 })
@@ -4301,10 +4327,22 @@ ChestSec:Button("Import Webhook URL from File", function()
         UI:Notify({ Title = "Loot Webhook", Content = "Enter a .txt filename first", Type = "warn", Duration = 4 })
         return
     end
+    if type(isfile) == "function" then
+        local exists, found = pcall(isfile, path)
+        if exists and not found then
+            UI:Notify({ Title = "Loot Webhook", Content = "File not found in Matcha's workspace: " .. path, Type = "warn", Duration = 5 })
+            return
+        end
+    end
     local ok, contents = pcall(readfile, path)
-    local url = ok and type(contents) == "string" and contents:match("^%s*(.-)%s*$") or nil
+    if not ok or type(contents) ~= "string" then
+        UI:Notify({ Title = "Loot Webhook", Content = "Matcha could not read: " .. path, Type = "warn", Duration = 5 })
+        return
+    end
+    local url = contents:match("https://discord%.com/api/webhooks/%d+/[%w_%-]+")
+        or contents:match("https://discordapp%.com/api/webhooks/%d+/[%w_%-]+")
     if not validWebhookUrl(url) then
-        UI:Notify({ Title = "Loot Webhook", Content = "Could not read a valid Discord URL from " .. path, Type = "warn", Duration = 5 })
+        UI:Notify({ Title = "Loot Webhook", Content = "File was read, but no valid Discord webhook URL was found", Type = "warn", Duration = 5 })
         return
     end
     State.WebhookUrlBox.Value = url
@@ -4406,16 +4444,16 @@ local ConfigNameWidget = nil
 local savedConfigDropdown = nil
 local configFolderPath = "Slayers2/configs"
 local ConfigStateKeys = {
-    "AutoDungeon", "AutoFarmMobs", "SelectedMob", "MobDefenseMode", "MobHeightOffset", "MobBehindDistance",
-    "MobAttackDelay", "AutoFarmBoss",
-    "SelectedBoss", "BossOrder", "bossIdx", "activeBoss", "DefenseMode", "BossHeightOffset",
+    "SelectedMob", "MobDefenseMode", "MobHeightOffset", "MobBehindDistance",
+    "MobAttackDelay",
+    "SelectedBoss", "BossOrder", "DefenseMode", "BossHeightOffset",
     "SkipBlocking", "AutoParry", "AutoBlock", "DefenseRange", "SmoothMove", "MoveSpeed", "WarpAbove", "SwingReach", "AutoLoot",
     "LootWait", "HoldT", "AimLock", "AimGain",
-    "AutoQuestTasks", "SelectedQuest", "QuestOrder", "questIdx", "QuestReturnAfter",
+    "SelectedQuest", "QuestOrder", "questIdx", "QuestReturnAfter",
     "QuestWait", "QuestWaitTime", "SkillGap", "SkillConfig", "NoClip",
-    "AutoChest", "ESPMobs", "ESPBosses", "ESPPlants", "ESPChests", "ESPCrystals",
+    "ESPMobs", "ESPBosses", "ESPPlants", "ESPChests", "ESPCrystals",
     "ESPSpiderLily", "ESPHorses", "ESPLevers", "ESPMuzan", "ESPFruits", "ESPDistance",
-    "FullAutoFarm", "QuestPickMode", "SpamZX", "CrowFarm", "CrowSlot", "CrowSwordSlot"
+    "QuestPickMode", "SpamZX", "CrowSlot", "CrowSwordSlot", "HybridRemotes"
 }
 local ConfigStateKeySet = {}
 for _, key in ipairs(ConfigStateKeys) do ConfigStateKeySet[key] = true end
@@ -4466,13 +4504,23 @@ local function copySerializable(value)
     return result
 end
 
-local function saveNamedConfig()
+local function saveNamedConfig(silent)
     local ok, err = pcall(function()
         if not isfolder("Slayers2") then makefolder("Slayers2") end
         if not isfolder(configFolderPath) then makefolder(configFolderPath) end
         local settings = {}
         for _, key in ipairs(ConfigStateKeys) do
-            settings[key] = copySerializable(State[key])
+            if key == "SkillConfig" then
+                settings[key] = {}
+                for skillName, cfg in pairs(State.SkillConfig) do
+                    settings[key][skillName] = {
+                        Enabled = cfg.Enabled, BlockBreaker = cfg.BlockBreaker,
+                        Mode = cfg.Mode, Hold = cfg.Hold, Distance = cfg.Distance
+                    }
+                end
+            else
+                settings[key] = copySerializable(State[key])
+            end
         end
         local payload = {
             version = 1,
@@ -4485,11 +4533,15 @@ local function saveNamedConfig()
             }
         }
         local json = game:GetService("HttpService"):JSONEncode(payload)
-        local name = safeConfigName()
+        local name = silent and (selectedConfigName or safeConfigName()) or safeConfigName()
         writefile(configPath(name), json)
         selectedConfigName = name
         writefile(configFolderPath .. "/last.json", game:GetService("HttpService"):JSONEncode({ name = name }))
     end)
+    if silent then
+        if not ok then warn("[NUGO] Settings auto-save failed: " .. tostring(err)) end
+        return
+    end
     if ok then
         refreshSavedConfigList()
         selectedConfigName = safeConfigName()
@@ -4538,24 +4590,14 @@ local function loadNamedConfig(name)
         selectedConfigName = profileName
         configNameInput = profileName
 
-        -- Reapply mode toggles after the values load, letting their existing
-        -- UI callbacks restore the automation state consistently.
+        -- Profiles contain preferences only; every farm starts stopped.
         pcall(function() hFullAutoFarm:Set(false) end)
         pcall(function() hAutoFarmMobs:Set(false) end)
         pcall(function() hAutoFarmBoss:Set(false) end)
         pcall(function() hCrowFarm:Set(false) end)
         pcall(function() hAutoDungeon:Set(false) end)
-        if State.AutoDungeon then
-            hAutoDungeon:Set(true)
-        elseif State.CrowFarm then
-            hCrowFarm:Set(true)
-        elseif State.FullAutoFarm then
-            hFullAutoFarm:Set(true)
-        elseif State.AutoFarmBoss then
-            hAutoFarmBoss:Set(true)
-        elseif State.AutoFarmMobs then
-            hAutoFarmMobs:Set(true)
-        end
+        pcall(function() hAutoChest:Set(false) end)
+        State.AutoQuestTasks = false
     end)
     if ok then
         pcall(function() ConfigNameWidget:Set(profileName) end)
@@ -6029,6 +6071,28 @@ pcall(function()
     Lib:SetAutoSave(true)
 end)
 loadLastConfig()
+do
+    -- The Arc UI's auto-save switch does not write this hub's profile payload.
+    -- Persist changed preferences locally while excluding all farm switches.
+    task.spawn(function()
+        task.wait(3)
+        local last = nil
+        while State.Running do
+            local ok, fingerprint = pcall(function()
+                return Lib:ExportConfig() .. "|" .. game:GetService("HttpService"):JSONEncode({
+                    State.SelectedMob, State.SelectedQuest, State.BossOrder,
+                    State.CrowSlot, State.CrowSwordSlot, State.HybridRemotes,
+                    SelectedZone, SelectedBossTeleport, SelectedTrainer
+                })
+            end)
+            if ok and fingerprint ~= last then
+                last = fingerprint
+                saveNamedConfig(true)
+            end
+            task.wait(4)
+        end
+    end)
+end
 
 UI:Notify({
     Title = "Slayers 2 Hub",
