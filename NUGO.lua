@@ -2095,16 +2095,29 @@ end
 
 -- A newly acquired Tool gives its exact name. Other drops are reported only
 -- after the corresponding world instance disappears following the interaction.
+local function connectOptional(name, instance, eventName, callback)
+    if not instance then return false end
+    local ok, connection = pcall(function()
+        local event = instance[eventName]
+        if not event or type(event.Connect) ~= "function" then return nil end
+        return event:Connect(callback)
+    end)
+    if ok and connection then
+        State.TrackConnection(name, connection)
+        return true
+    end
+    return false
+end
 local function watchBackpack(backpack)
-    State.TrackConnection("lootAddedConn", backpack.ChildAdded:Connect(function(child)
+    connectOptional("lootAddedConn", backpack, "ChildAdded", function(child)
         if State.collect and child:IsA("Tool") then sendLootNotice(child.Name, "tool") end
-    end))
+    end)
 end
 local backpack = lp:FindFirstChildOfClass("Backpack")
 if backpack then watchBackpack(backpack) end
-State.TrackConnection("lootBackpackConn", lp.ChildAdded:Connect(function(child)
+connectOptional("lootBackpackConn", lp, "ChildAdded", function(child)
     if child:IsA("Backpack") then watchBackpack(child) end
-end))
+end)
 
 -- Read the player's pickup toast when the game provides one. Only message
 -- changes during the loot cycle qualify; the UI's exact item text wins over
@@ -2148,26 +2161,36 @@ local function pickupText(raw, instance)
 end
 local function watchLootText(label)
     if lootTextConnections[label] or not (label:IsA("TextLabel") or label:IsA("TextButton")) then return end
-    lootTextConnections[label] = label:GetPropertyChangedSignal("Text"):Connect(function()
+    local callback = function()
         if not Webhook.enabled or not (State.collect or State.lootPhase
             or State.pendingLoot or os.clock() < Webhook.activeUntil) then return end
         local item = pickupText(label.Text, label)
         if item then sendLootNotice(item, "ui") end
+    end
+    local ok, conn = pcall(function()
+        local signal = label:GetPropertyChangedSignal("Text")
+        if signal and type(signal.Connect) == "function" then
+            return signal:Connect(callback)
+        end
     end)
+    if ok and conn then lootTextConnections[label] = conn end
 end
 local function bindLootGui(gui)
-    for _, descendant in ipairs(gui:GetDescendants()) do watchLootText(descendant) end
-    State.TrackConnection("lootGuiAddedConn", gui.DescendantAdded:Connect(watchLootText))
-    State.TrackConnection("lootGuiRemovedConn", gui.DescendantRemoving:Connect(function(descendant)
+    local ok, descendants = pcall(function() return gui:GetDescendants() end)
+    if ok and type(descendants) == "table" then
+        for _, descendant in ipairs(descendants) do pcall(watchLootText, descendant) end
+    end
+    connectOptional("lootGuiAddedConn", gui, "DescendantAdded", watchLootText)
+    connectOptional("lootGuiRemovedConn", gui, "DescendantRemoving", function(descendant)
         local conn = lootTextConnections[descendant]
         if conn then conn:Disconnect(); lootTextConnections[descendant] = nil end
-    end))
+    end)
 end
 local playerGui = lp:FindFirstChildOfClass("PlayerGui")
 if playerGui then bindLootGui(playerGui) end
-State.TrackConnection("lootPlayerGuiConn", lp.ChildAdded:Connect(function(child)
+connectOptional("lootPlayerGuiConn", lp, "ChildAdded", function(child)
     if child:IsA("PlayerGui") then bindLootGui(child) end
-end))
+end)
 State.OnShutdown(function()
     for label, conn in pairs(lootTextConnections) do
         conn:Disconnect()
