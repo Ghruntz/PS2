@@ -128,8 +128,9 @@ local State = {
     win = nil,
     FullAutoFarm = false,
     QuestPickMode = "Normal NPC Quest",
-    QuestClickOffsetX = 0,
-    QuestClickOffsetY = 0,
+    QuestClickOffsetX = 60,
+    QuestClickOffsetY = 15,
+    HybridRemotes = false,
     questTNextAt = 0,
     SpamZX = false
 }
@@ -1337,7 +1338,7 @@ local farmLastAct
 
 local Combat = { skills = SkillInput }
 function Combat:attack(char, style, combo)
-    if not RemoteEvent then return combo end
+    if not RemoteEvent or not State.HybridRemotes then return combo end
     local cur = 0
     pcall(function()
         cur = tonumber(char:GetAttribute("last_combo")) or 0
@@ -2986,7 +2987,7 @@ end
 --    singular=boss / plural=normal y fire AddQuest con el texto leido
 -- 3) ultimo recurso: click mouse (handleQuestDialogue)
 fireAddQuest = function(optionText)
-    if not RemoteEvent or type(optionText) ~= "string" or optionText == "" then return false end
+    if not State.HybridRemotes or not RemoteEvent or type(optionText) ~= "string" or optionText == "" then return false end
     local ok = pcall(function()
         RemoteEvent:FireServer("AddQuest", optionText)
     end)
@@ -3014,6 +3015,13 @@ local function autoAcceptQuest(npcName, npcPos)
     local data = QuestRegistry[State.SelectedQuest]
     local wantBoss = State.QuestPickMode == "Boss Quest"
     local forcedDeliveryWait = data and data.DeliverySteps ~= nil
+    if forcedDeliveryWait and not State.HybridRemotes then
+        if not State.DeliveryHybridWarned then
+            State.DeliveryHybridWarned = true
+            UI:Notify({ Title = "Delivery Quest", Content = "This quest needs Matcha hybrid mode and Use Hybrid Remotes", Type = "warn", Duration = 5 })
+        end
+        return false
+    end
     if (State.QuestWait or forcedDeliveryWait) and (State.questWaitUntil or 0) > os.clock() then
         local remaining = State.questWaitUntil - os.clock()
         UI:Notify({ Title = "Quest Wait", Content = "Waiting " .. tostring(math.ceil(remaining)) .. "s before accepting the quest", Type = "info", Duration = 3 })
@@ -3174,7 +3182,7 @@ local function processDeliveryQuest(activeQ, data)
         return true
     end
 
-    if not RemoteEvent then return true end
+    if not RemoteEvent or not State.HybridRemotes then return true end
     State.deliverySentAt = now
     State.deliveryAt = nil
     State.deliveryAttempts = (State.deliveryAttempts or 0) + 1
@@ -3751,13 +3759,19 @@ FarmMobsSec:Dropdown("Quest Mission Type", {"Normal NPC Quest"}, { "Normal NPC Q
     State.QuestPickMode = type(val) == "table" and val[1] or val
 end)
 
-FarmMobsSec:Info("Quest click aim: adjust X/Y if Matcha clicks beside a dialogue option.")
-FarmMobsSec:Slider("Quest Click X", 0, 1, -100, 100, "px", function(val)
-    State.QuestClickOffsetX = tonumber(val) or 0
-end)
-FarmMobsSec:Slider("Quest Click Y", 0, 1, -100, 100, "px", function(val)
-    State.QuestClickOffsetY = tonumber(val) or 0
-end)
+FarmMobsSec:Info("Quest click aim defaults to X 60 / Y 15. Matcha hybrid mode is needed for remote actions.")
+do
+    local x = FarmMobsSec:Slider("Quest Click X", 60, 1, -100, 100, "px", function(val)
+        State.QuestClickOffsetX = tonumber(val) or 60
+    end)
+    local y = FarmMobsSec:Slider("Quest Click Y", 15, 1, -100, 100, "px", function(val)
+        State.QuestClickOffsetY = tonumber(val) or 15
+    end)
+    x.NoSave, y.NoSave = true, true
+end
+FarmMobsSec:Toggle("Use Hybrid Remotes", false, function(val)
+    State.HybridRemotes = val
+end).NoSave = true
 
 local QuestWaitSlider
 FarmMobsSec:Toggle("Quest Wait", false, function(val)
@@ -4401,7 +4415,7 @@ local ConfigStateKeys = {
     "QuestWait", "QuestWaitTime", "SkillGap", "SkillConfig", "NoClip",
     "AutoChest", "ESPMobs", "ESPBosses", "ESPPlants", "ESPChests", "ESPCrystals",
     "ESPSpiderLily", "ESPHorses", "ESPLevers", "ESPMuzan", "ESPFruits", "ESPDistance",
-    "FullAutoFarm", "QuestPickMode", "QuestClickOffsetX", "QuestClickOffsetY", "SpamZX", "CrowFarm", "CrowSlot", "CrowSwordSlot"
+    "FullAutoFarm", "QuestPickMode", "SpamZX", "CrowFarm", "CrowSlot", "CrowSwordSlot"
 }
 local ConfigStateKeySet = {}
 for _, key in ipairs(ConfigStateKeys) do ConfigStateKeySet[key] = true end
@@ -4836,7 +4850,7 @@ local function nikoDeliveryWatchdog(activeQ, data)
             local hrp = char and char:FindFirstChild("HumanoidRootPart")
             local target = findLiveNpcPos(shiori.NpcName) or shiori.NpcPos
             if hrp and vec3Ok(target) and (hrp.Position - target).Magnitude <= 10 then
-                if now - (State.deliverySentAt or 0) >= 3 then
+                if State.HybridRemotes and now - (State.deliverySentAt or 0) >= 3 then
                     State.deliverySentAt = now
                     pcall(function()
                         RemoteEvent:FireServer("QuestProgress", data.QuestOption, "Deliver to Shiori")
