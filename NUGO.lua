@@ -3762,7 +3762,7 @@ QuestWaitSlider:SetVisible(State.QuestWait)
 FarmMobsSec:Dropdown("Crow Inventory Slot", {"2"}, {"1", "2", "3", "4", "5"}, false, function(val)
     State.CrowSlot = tonumber(type(val) == "table" and val[1] or val) or 2
 end)
-FarmMobsSec:Dropdown("Crow Hunt Sword Slot", {"1"}, {"1", "2", "3", "4", "5"}, false, function(val)
+FarmMobsSec:Dropdown("Weapon Slot", {"1"}, {"1", "2", "3", "4", "5"}, false, function(val)
     State.CrowSwordSlot = tonumber(type(val) == "table" and val[1] or val) or 1
 end)
 
